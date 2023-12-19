@@ -1,10 +1,13 @@
 #include <sys/time.h>
-#include <sys/resource.h>
+//#include <sys/resource.h>
+#include <windows.h>
+#include <process.h>
 #include <math.h>
 
 // Some useful functions
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
+#define PI 3.14159265358979323846
 
 // Variables used by FFT functions
 double *_sintbl = 0;
@@ -29,7 +32,7 @@ int get_nextpow2(int n);
 static int checkm(const int m);
 
 // Hanning window, not currently used, for bonus questions only (from SPTK toolbox https://sp-tk.sourceforge.net)
-static double *hanning(double *w, const int leng);
+//static double *hanning(double *w, const int leng);
 
 // Memory-related functions, used by FFT-related functions (from SPTK toolbox https://sp-tk.sourceforge.net)
 char *getmem(int leng, unsigned size);
@@ -41,16 +44,17 @@ double *dgetmem(int leng);
 /* ---- IO-related function ---------------- */
 
 int write_buff_dump(double* buff, const int n_buff, double* buff_dump, const int n_buff_dump, int* ind_dump) {
-
+   
+   
   int i = 0;
   for (i = 0; i < n_buff; i++) 
   {
-    if (*ind_dump < n_buff_dump) 
-    {
+   
+    if (*ind_dump < n_buff_dump) {
       buff_dump[*ind_dump] = buff[i];
       (*ind_dump)++;
-    } else 
-    {
+      } 
+    else {
       break;
     }
   }
@@ -59,7 +63,7 @@ int write_buff_dump(double* buff, const int n_buff, double* buff_dump, const int
 }
 
 /* ---- Time-related function -------------- */
-
+/*
 double get_process_time() {
     struct rusage usage;
     if( 0 == getrusage(RUSAGE_SELF, &usage) ) {
@@ -68,6 +72,51 @@ double get_process_time() {
     }
     return 0;
 }
+*/
+
+double * autocor(double *  sig, int n){
+   //get number of elements in sig
+    double * ac = (double *) calloc(n, sizeof(double));
+    for (int i = 0; i < n; i++){
+        for (int j = 0; j < n - i; j++){
+            ac[i] += sig[j] * sig[j + i];
+        }
+    }
+    return ac;   
+}
+
+double * circ_autocor(double *  circ_buffer, int n, int* read_ind){
+   //get number of elements in sig
+    double * ac = (double *) calloc(n, sizeof(double));
+    for (int i = 0; i < n; i++){
+        for (int j = 0; j < n - i; j++){
+            ac[i] += circ_buffer[(*read_ind + j) % n] * circ_buffer[(*read_ind + j + i) % n];
+        }
+    }
+    return ac;   
+}
+
+int extract_f0(double * ac, int n, int fs, int min_f0, int max_f0){
+   double max_1 = 0;
+   int max_ind_1 = 0;
+   double max_2 = 0;
+   int max_ind_2 = 0;
+   int min_ind = (int) (fs / max_f0);
+   int max_ind = (int) (fs / min_f0);
+   for (int i = 0; i < n; i++){
+         if (ac[i] > max_1){
+            max_1 = ac[i];
+            max_ind_1 = i;
+         }
+         else if(ac[i] > max_2 && i > min_ind && i < max_ind){
+            max_2 = ac[i];
+            max_ind_2 = i;
+         }
+   }
+   printf("max_ind_1 = %d, max_ind_2 = %d\n", max_ind_1, max_ind_2);
+   return (int) (fs / (max_ind_2 - max_ind_1));
+}
+
 
 // Sous windows
 double get_process_time_windows(){
@@ -386,6 +435,7 @@ int ifft(double *x, double *y, const int m)
        int     leng : window length
 **********************************************/
 
+/*
 static double *hanning(double *w, const int leng)
 {
   int i;
@@ -398,7 +448,7 @@ static double *hanning(double *w, const int leng)
 
   return (w);
 }
-
+*/
 
 /* ---- Memory-related functions ----------- */
 
