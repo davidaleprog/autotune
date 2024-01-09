@@ -14,6 +14,8 @@
 #include <cstring>
 #include <math.h>
 
+#define PI 3.14159265358979323846
+
 //include somfunc.cpp
 #include "../../c/somefunc.cpp"
 
@@ -55,6 +57,9 @@ struct duplexData
   int ind_dump_out;
   MY_TYPE * fft_icirc;
   MY_TYPE * fft_rcirc;
+  double * harmonics;
+  double *phi;
+  double f_0_prev;
 };
 
 void usage( void ) {
@@ -104,10 +109,12 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
     streamTimePrintTime += streamTimePrintIncrement;
   }
 
+  
+
   //retrieve bufferBytes and fs from callbackData
   duplexData *callback_data = ( duplexData *) data_p; 
 
-  //unsigned int bufferBytes = callback_data->bufferBytes; 
+  unsigned int bufferBytes = callback_data->bufferBytes; 
   //memcpy( outputBuffer, inputBuffer, bufferBytes );
 
   int n = callback_data->n_buff;
@@ -118,21 +125,18 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
   int *read_ind = callback_data->read_ind;
   double *fft_icirc = callback_data->fft_icirc;
   double *fft_rcirc = callback_data->fft_rcirc;
-
+  
   //fill circular buffer
   for (int i = 0; i < n; i++) {
     circ_buffer[*write_ind] = ((double *) inputBuffer)[i];
     *write_ind = (*write_ind + 1) % N;
   }
   // get read index
-  *callback_data->write_ind = *write_ind;
+  callback_data->write_ind = write_ind;
 
-
-  //get f_0
+  double *phi = callback_data->phi;
   double f_0 = extract_f0( circ_autocor( circ_buffer, N,read_ind),
                           N,callback_data->fs, 50, 500);
-
-  for (int i = 0; i < n; i++) { ((double *) outputBuffer)[i] = f_0;}
 
 
   // fft
@@ -141,23 +145,47 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
   }
   fftr(fft_rcirc, fft_icirc, N);
 
-  double Af0 = 0;
   double * mod = (double *) calloc(N, sizeof(double));
-  //write fft to output buffer
+
+  // extract harmonics
+  double * harmonics = callback_data->harmonics;
+  int n_harm = 10;
   for (int i = 0; i < N; i ++){
     mod[i] = sqrt(fft_rcirc[i]*fft_rcirc[i] + fft_icirc[i]*fft_icirc[i]);
-    if (i == int(f_0*N/callback_data->fs)){
-      Af0 = mod[i];}
+
+    for (int j = 1; j < n_harm+1; j++){
+      if (i == int(j*f_0*N/callback_data->fs)){
+      harmonics[j-1] = mod[i]*1/N;
+      }
+    }
   }
 
-  printf("Af0 , f0 , nf0 = %f, %f , %f \n", Af0, f_0, f_0*N/callback_data->fs);
+  
+  double f_0_prev = callback_data->f_0_prev;
+  for (int i = 0; i < n; i++) { 
+    double synth = 0;
+    for (int k = 0; k<n_harm; k++){
+     synth += harmonics[k]*cos(2*PI*(k+1)*f_0*double(i)/callback_data->fs + phi[k]);
+     phi[k] += 2*PI*(k+1)*f_0_prev*double(i)/callback_data->fs;
+    }
+    //synth = harmonics[0]*cos(2*PI*f_0*double(i)/callback_data->fs);
+    ((double *) outputBuffer)[i] = synth;}
 
-  write_buff_dump((double *) inputBuffer, n, callback_data->buffer_dump_in, 
-  callback_data->n_buff_dump, &(callback_data->ind_dump_in));
+  callback_data->f_0_prev = f_0;
+  
+  callback_data->phi = phi;
+
+  printf("Af0 , f0 , nf0 = %f, %f , %d \n", harmonics[0], f_0,  int(f_0*N/callback_data->fs));
+
+
+  //memcpy( outputBuffer, inputBuffer, bufferBytes );
+  
 
   write_buff_dump((double *) outputBuffer, n, callback_data->buffer_dump_out,
   callback_data->n_buff_dump, &(callback_data->ind_dump_out));
   
+  write_buff_dump((double *) inputBuffer, n, callback_data->buffer_dump_in, 
+  callback_data->n_buff_dump, &(callback_data->ind_dump_in));
 
   // update read index
   *callback_data->read_ind = (*read_ind + n) % N;
@@ -248,7 +276,11 @@ int main( int argc, char *argv[] )
   data.read_ind = (int *) calloc(1, sizeof(int));
   *data.write_ind = 0;
   *data.read_ind = 0;
+  data.phi = (double *) calloc(10, sizeof(double)); //10 harmonics
+  data.f_0_prev = 0;
 
+  double * harmonics = (double *) calloc(10, sizeof(double));
+  data.harmonics = harmonics;
 
   if (data.buffer_dump_in == NULL) {
     printf("Error: could not allocate memory for buffer_dump\n");
