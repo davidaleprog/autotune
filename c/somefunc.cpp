@@ -113,7 +113,6 @@ int extract_f0(double * ac, int n, int fs, int min_f0, int max_f0){
             max_ind_2 = i;
          }
    }
-   printf("max_ind_1 = %d, max_ind_2 = %d\n", max_ind_1, max_ind_2);
    return (int) (fs / (max_ind_2 - max_ind_1));
 }
 

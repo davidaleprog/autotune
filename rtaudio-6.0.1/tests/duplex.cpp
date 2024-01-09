@@ -12,6 +12,8 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+#include <math.h>
+
 //include somfunc.cpp
 #include "../../c/somefunc.cpp"
 
@@ -51,6 +53,8 @@ struct duplexData
   unsigned int n_buff;
   int ind_dump_in;
   int ind_dump_out;
+  MY_TYPE * fft_icirc;
+  MY_TYPE * fft_rcirc;
 };
 
 void usage( void ) {
@@ -91,8 +95,7 @@ double streamTimePrintTime = 1.0; // seconds
 
 int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/,
            double streamTime, RtAudioStreamStatus status, void *data_p )
-{
-  // Since the number of input and output channels is equal, we can do
+{ // Since the number of input and output channels is equal, we can do
   // a simple buffer copy operation here.
   if ( status ) std::cout << "Stream over/underflow detected." << std::endl;
 
@@ -113,30 +116,51 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
   unsigned int N = callback_data->N_circ_buffer;
   int *write_ind = callback_data->write_ind;
   int *read_ind = callback_data->read_ind;
+  double *fft_icirc = callback_data->fft_icirc;
+  double *fft_rcirc = callback_data->fft_rcirc;
+
   //fill circular buffer
   for (int i = 0; i < n; i++) {
     circ_buffer[*write_ind] = ((double *) inputBuffer)[i];
     *write_ind = (*write_ind + 1) % N;
   }
+  // get read index
   *callback_data->write_ind = *write_ind;
- 
 
-  //double f_0 = extract_f0( autocor( (double *) inputBuffer, n), 
-    //                      n,callback_data->fs, 50, 500);
 
+  //get f_0
   double f_0 = extract_f0( circ_autocor( circ_buffer, N,read_ind),
                           N,callback_data->fs, 50, 500);
-  
-  *callback_data->read_ind = (*read_ind + n) % N;
-  
-  for (int i = 0; i < n; i++) {
-    ((double *) outputBuffer)[i] = f_0;
+
+  for (int i = 0; i < n; i++) { ((double *) outputBuffer)[i] = f_0;}
+
+
+  // fft
+  for (int i = 0; i < N; i++) {
+    fft_rcirc[i] = circ_buffer[(*read_ind + i) % N];
   }
+  fftr(fft_rcirc, fft_icirc, N);
+
+  double Af0 = 0;
+  double * mod = (double *) calloc(N, sizeof(double));
+  //write fft to output buffer
+  for (int i = 0; i < N; i ++){
+    mod[i] = sqrt(fft_rcirc[i]*fft_rcirc[i] + fft_icirc[i]*fft_icirc[i]);
+    if (i == int(f_0*N/callback_data->fs)){
+      Af0 = mod[i];}
+  }
+
+  printf("Af0 , f0 , nf0 = %f, %f , %f \n", Af0, f_0, f_0*N/callback_data->fs);
+
   write_buff_dump((double *) inputBuffer, n, callback_data->buffer_dump_in, 
   callback_data->n_buff_dump, &(callback_data->ind_dump_in));
 
   write_buff_dump((double *) outputBuffer, n, callback_data->buffer_dump_out,
   callback_data->n_buff_dump, &(callback_data->ind_dump_out));
+  
+
+  // update read index
+  *callback_data->read_ind = (*read_ind + n) % N;
   return 0;
 }
 
@@ -217,6 +241,9 @@ int main( int argc, char *argv[] )
   double* circ_buffer = (double *) calloc(data.N_circ_buffer, sizeof(double));
   data.circ_buffer = circ_buffer;
   
+  data.fft_icirc = (double *) calloc(data.N_circ_buffer, sizeof(double));
+  data.fft_rcirc = (double *) calloc(data.N_circ_buffer, sizeof(double));
+
   data.write_ind = (int *) calloc(1, sizeof(int));
   data.read_ind = (int *) calloc(1, sizeof(int));
   *data.write_ind = 0;
