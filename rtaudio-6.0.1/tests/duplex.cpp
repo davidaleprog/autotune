@@ -111,16 +111,13 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
 
   
 
-  //retrieve bufferBytes and fs from callbackData
   duplexData *callback_data = ( duplexData *) data_p; 
-
-  unsigned int bufferBytes = callback_data->bufferBytes; 
   //memcpy( outputBuffer, inputBuffer, bufferBytes );
 
   int n = callback_data->n_buff;
-
+  unsigned int fs = callback_data->fs;
   double *circ_buffer = callback_data->circ_buffer;
-  unsigned int N = callback_data->N_circ_buffer;
+  int N = callback_data->N_circ_buffer;
   int *write_ind = callback_data->write_ind;
   int *read_ind = callback_data->read_ind;
   double *fft_icirc = callback_data->fft_icirc;
@@ -131,12 +128,15 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
     circ_buffer[*write_ind] = ((double *) inputBuffer)[i];
     *write_ind = (*write_ind + 1) % N;
   }
-  // get read index
+
+  // update write index
   callback_data->write_ind = write_ind;
 
   double *phi = callback_data->phi;
+
+  // extract f_0
   double f_0 = extract_f0( circ_autocor( circ_buffer, N,read_ind),
-                          N,callback_data->fs, 50, 500);
+                          N,fs, 50, 500);
 
 
   // fft
@@ -144,43 +144,45 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
     fft_rcirc[i] = circ_buffer[(*read_ind + i) % N];
   }
   fftr(fft_rcirc, fft_icirc, N);
+  // check with ifft : ifftr(fft_rcirc, fft_icirc, N); 
 
-  double * mod = (double *) calloc(N, sizeof(double));
+
 
   // extract harmonics
   double * harmonics = callback_data->harmonics;
   int n_harm = 10;
-  for (int i = 0; i < N; i ++){
-    mod[i] = sqrt(fft_rcirc[i]*fft_rcirc[i] + fft_icirc[i]*fft_icirc[i]);
-
-    for (int j = 1; j < n_harm+1; j++){
-      if (i == int(j*f_0*N/callback_data->fs)){
-      harmonics[j-1] = mod[i]*1/N;
+  for ( int j = 1; j < n_harm+1; j++){
+    for ( int i = 0; i < N; i ++){
+      if (i == int(j*f_0*N/fs)){
+      harmonics[j-1] = sqrt(fft_rcirc[i]*fft_rcirc[i] + fft_icirc[i]*fft_icirc[i]);
       }
     }
   }
+ 
+  // round f_0 to autotune
+  int nb_levels = 12;
+  double f_st = nb_levels*std::log2(f_0);
+  f_0 = std::pow(2, std::round(f_st)/nb_levels);
 
-  
+
+  //synthesis
   double f_0_prev = callback_data->f_0_prev;
   for (int i = 0; i < n; i++) { 
-    double synth = 0;
-    for (int k = 0; k<n_harm; k++){
-     synth += harmonics[k]*cos(2*PI*(k+1)*f_0*double(i)/callback_data->fs + phi[k]);
-     phi[k] += 2*PI*(k+1)*f_0_prev*double(i)/callback_data->fs;
+    ((double *) outputBuffer)[i] = 0;
+    for (int j = 0; j < n_harm; j++){
+      ((double *) outputBuffer)[i] += harmonics[j]*sin(2*PI*(j+1)*f_0*(i+1)/fs +phi[j])*1/N;
     }
-    //synth = harmonics[0]*cos(2*PI*f_0*double(i)/callback_data->fs);
-    ((double *) outputBuffer)[i] = synth;}
+  }
 
-  callback_data->f_0_prev = f_0;
-  
+  //update phi
+  for (int j = 0; j < n_harm; j++){
+    phi[j] += 2*PI*(j+1)*f_0_prev*double(n)/fs;}
   callback_data->phi = phi;
 
-  printf("Af0 , f0 , nf0 = %f, %f , %d \n", harmonics[0], f_0,  int(f_0*N/callback_data->fs));
-
+  //update f_0_prev
+  callback_data->f_0_prev = f_0;
 
   //memcpy( outputBuffer, inputBuffer, bufferBytes );
-  
-
   write_buff_dump((double *) outputBuffer, n, callback_data->buffer_dump_out,
   callback_data->n_buff_dump, &(callback_data->ind_dump_out));
   
@@ -265,7 +267,7 @@ int main( int argc, char *argv[] )
   data.buffer_dump_out = (MY_TYPE *) calloc(n_buff_dump, sizeof(double));
 
   //create circular buffer
-  data.N_circ_buffer = bufferFrames*4; //4 buffers in circular buffer
+  data.N_circ_buffer = bufferFrames*2; //2 buffers in circular buffer
   double* circ_buffer = (double *) calloc(data.N_circ_buffer, sizeof(double));
   data.circ_buffer = circ_buffer;
   
@@ -279,7 +281,7 @@ int main( int argc, char *argv[] )
   data.phi = (double *) calloc(10, sizeof(double)); //10 harmonics
   data.f_0_prev = 0;
 
-  double * harmonics = (double *) calloc(10, sizeof(double));
+  double * harmonics = (double *) calloc(10, sizeof(double)); //10 harmonics
   data.harmonics = harmonics;
 
   if (data.buffer_dump_in == NULL) {
