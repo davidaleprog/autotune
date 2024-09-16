@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "compilerPath": "C:\\Users\\alexi\\Documents\\sicom\\autotune_project\\rtaudio-6.0.1\\tests\\Makefile.in"
+        }
+    ],
+    "version": 4
+}
